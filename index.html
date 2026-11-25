@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>큐브플라자 투사 시뮬레이터</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: drawing-sheet feel. Left = plan + 3D stage, right = instrument panel. */
+:root{
+  --bg:#f2f4f6; --surface:#ffffff; --ink:#17202a; --muted:#5d6975; --line:#d3d9df;
+  --wall:#27323d; --accent:#b86e00; --good:#1f8a4c; --warn:#b86e00; --bad:#c0392b;
+  --sans:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1317; --surface:#181d23; --ink:#e6eaee; --muted:#93a0ad; --line:#2c343d;
+  --wall:#c9d2db; --accent:#f0a630; --good:#4cc27e; --warn:#f0a630; --bad:#f07362; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1317; --surface:#181d23; --ink:#e6eaee; --muted:#93a0ad; --line:#2c343d;
+  --wall:#c9d2db; --accent:#f0a630; --good:#4cc27e; --warn:#f0a630; --bad:#f07362; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+.wrap{max-width:1320px;margin:0 auto;padding-block:20px 40px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:16px}
+header h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance}
+header p{margin:2px 0 0;color:var(--muted)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}
+.card h2{font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;text-transform:uppercase}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px}
+.bar h2{margin:0}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+#plan{width:100%;height:auto;display:block;touch-action:none;user-select:none;-webkit-user-select:none}
+#plan .room{fill:var(--bg);stroke:var(--wall);stroke-width:.09;stroke-linejoin:miter}
+#plan .g{stroke:var(--line);stroke-width:.015}
+#plan .colm{fill:var(--wall);opacity:.55}
+#plan .door{stroke:var(--surface);stroke-width:.11}
+#plan .doorl{stroke:var(--muted);stroke-width:.03;stroke-dasharray:.12 .08;fill:none}
+#plan text{font-family:var(--mono);font-size:.26px;fill:var(--muted)}
+#plan .dim{stroke:var(--muted);stroke-width:.02}
+#plan .nm{font-family:var(--sans);font-weight:600;font-size:.3px;fill:var(--ink)}
+#plan [data-role]{cursor:grab}
+.hint{color:var(--muted);font-size:12px;margin:6px 0 0}
+#view3d{width:100%;aspect-ratio:16/9;max-width:100%;background:#0b0e12;border-radius:4px;overflow:hidden;position:relative}
+#view3d canvas{width:100%;height:100%;display:block;touch-action:none}
+#view3d .msg{position:absolute;inset:0;display:grid;place-items:center;color:#93a0ad;padding:16px;text-align:center}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-variant-numeric:tabular-nums}
+th{font-weight:500;color:var(--muted);font-size:12px}
+th:first-child,td:first-child{text-align:left}
+td.num,.num{font-family:var(--mono)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+.pill{display:inline-block;padding:0 7px;border-radius:9px;font-size:12px;border:1px solid currentColor}
+.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chips button{display:flex;align-items:center}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:baseline;margin-bottom:8px}
+.row label{color:var(--muted);font-size:12px}
+.row output{font-family:var(--mono);font-size:12px}
+.row input[type=range]{grid-column:1/-1;width:100%;margin:0;accent-color:var(--accent)}
+.row select,.row input[type=number]{font:inherit;grid-column:1/-1;width:100%;padding:4px 6px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0;margin-bottom:10px}
+.seg button{border-radius:0;margin-left:-1px}
+.seg button:first-child{border-radius:4px 0 0 4px;margin-left:0}.seg button:last-child{border-radius:0 4px 4px 0}
+dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0}
+dt{color:var(--muted);font-size:12px}dd{margin:0;text-align:right;font-family:var(--mono);font-size:13px}
+.note{font-size:12px;color:var(--muted);margin:8px 0 0}
+.alert{font-size:12px;margin:8px 0 0;padding:6px 8px;border-left:3px solid var(--warn);background:var(--bg)}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>큐브플라자 투사 시뮬레이터</h1>
+  <p>성남아트센터 큐브플라자 1층 유휴공간 · Panasonic PT-VZ580 (5,000 lm · WUXGA 1920×1200) 기준</p>
+</header>
+
+<div class="grid">
+<div class="col">
+  <div class="card">
+    <div class="bar"><h2>평면도 (단위 m)</h2>
+      <div class="btns"><button id="btn-add" class="primary">프로젝터 추가</button><button id="btn-reset">예시 배치로 초기화</button></div></div>
+    <svg id="plan" viewBox="-0.9 -0.9 17.7 9.2" role="img" aria-label="공간 평면도와 프로젝터 배치">
+      <defs><clipPath id="rc"><polygon id="rcp"/></clipPath></defs>
+      <g id="static"></g><g id="dyn"></g>
+    </svg>
+    <p class="hint">본체를 끌어 위치를 옮기고, 앞쪽 둥근 손잡이를 끌어 방향을 돌립니다. 굵은 선이 빛이 닿는 범위입니다.</p>
+  </div>
+
+  <div class="card">
+    <div class="bar"><h2>3D 미리보기</h2>
+      <div class="btns" id="views"><button data-v="iso">조감</button><button data-v="top">위에서</button><button data-v="eye">눈높이</button></div></div>
+    <div id="view3d"><canvas id="gl"></canvas></div>
+    <p class="hint">끌어서 회전, 휠·핀치로 확대, 오른쪽 버튼(또는 두 손가락)으로 이동. 화면 밝기는 주변 밝기 대비 조도를 반영합니다.</p>
+  </div>
+
+  <div class="card">
+    <h2>프로젝터별 결과</h2>
+    <div class="scroll"><table id="sum"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>거리별 화면 크기 (정면 투사, 16:10)</h2>
+    <div class="scroll"><table id="dist"></table></div>
+    <p class="note">줌을 최대 광각(1.09:1)과 최대 망원(1.77:1)으로 두었을 때의 화면 폭×높이. 조도는 새 램프·보통 모드 기준 평균값입니다.</p>
+  </div>
+</div>
+
+<div class="col">
+  <div class="card">
+    <h2>공간 · 공통</h2>
+    <div class="row"><label for="g-H">천장 높이</label><output id="o-H"></output><input type="range" id="g-H" min="2.5" max="6" step="0.1"></div>
+    <div class="row"><label for="g-amb">주변 밝기</label><output id="o-amb"></output>
+      <select id="g-amb"><option value="5">암전 (약 5 lx)</option><option value="30">어두운 전시 조명 (약 30 lx)</option><option value="100">은은한 실내 (약 100 lx)</option><option value="300">일반 사무실 조명 (약 300 lx)</option></select></div>
+    <div class="row"><label for="g-pat">투사 영상</label><span></span>
+      <select id="g-pat"><option value="grid">격자 테스트 패턴</option><option value="white">전체 흰색</option><option value="bars">컬러 바</option></select></div>
+    <div class="row"><label for="g-lamp">램프 상태 (노후 반영)</label><output id="o-lamp"></output><input type="range" id="g-lamp" min="40" max="100" step="5"></div>
+  </div>
+
+  <div class="card">
+    <h2>프로젝터 설정</h2>
+    <div class="chips" id="chips"></div>
+    <div id="panel"></div>
+  </div>
+
+  <div class="card">
+    <h2>선택한 프로젝터</h2>
+    <dl id="read"></dl>
+    <div id="alerts"></div>
+  </div>
+
+  <div class="card">
+    <h2>기준 사양</h2>
+    <dl>
+      <dt>밝기</dt><dd>5,000 lm</dd>
+      <dt>투사비</dt><dd>1.09–1.77 : 1</dd>
+      <dt>렌즈 시프트</dt><dd>수직 0–44%</dd>
+      <dt>키스톤 보정</dt><dd>V ±25° / H ±30°</dd>
+      <dt>화면 크기</dt><dd>30–300 인치</dd>
+    </dl>
+    <p class="note">평면은 도면 이미지를 따라 그린 근사치입니다(가로 약 15.8 m, 세로 5.6–7.3 m). 에코 모드 밝기(80%)와 기울기 제한(30°)은 추정값이니 현장 설치 전 실측과 사용설명서 확인이 필요합니다.</p>
+  </div>
+</div>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+const $=s=>document.querySelector(s), D=Math.PI/180;
+const ROOM=[[0,0],[15.83,0],[15.83,6.6],[11.86,6.6],[11.86,7.33],[3.31,6.12],[3.27,5.8],[0.57,5.63]];
+const COL=[[6.9,5.68],[7.6,5.68],[7.6,6.36],[6.9,6.36]];
+const DOOR=[13.01,14.81];
+const SPEC={lm:5000,trMin:1.09,trMax:1.77,shiftMax:44,kV:25,kH:30,resX:1920,eco:.8,tilt:30};
+const COLORS=['#e8a013','#2f9bd6','#d6497a','#3fae6a','#8a6fe0','#e06a2f','#19b3a6','#b8b33a'];
+const ASPECT={'16:10':[1,1],'16:9':[1,0.9],'4:3':[0.8333,1]};
+const NX=40,NY=26,KEY='cube-proj-v1',MAXP=8;
+
+function pip(x,y,poly){let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
+  if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])c=!c}return c}
+const inRoom=(x,y)=>pip(x,y,ROOM)&&!pip(x,y,COL);
+const SEGS=[];
+function addSegs(poly,room){for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length];
+  const ex=b[0]-a[0],ey=b[1]-a[1],l=Math.hypot(ex,ey);let nx=-ey/l,ny=ex/l;
+  const mx=(a[0]+b[0])/2+nx*.02,my=(a[1]+b[1])/2+ny*.02;
+  if(!inRoom(mx,my)){nx=-nx;ny=-ny}
+  SEGS.push({ax:a[0],ay:a[1],bx:b[0],by:b[1],nx,ny,room})}}
+addSegs(ROOM,true);addSegs(COL,false);
+
+function defaults(){return{H:4,amb:30,pattern:'grid',lamp:100,sel:1,next:4,ps:[
+  {id:1,name:'P1',x:8,y:2.7,z:3.6,yaw:270,pitch:0,mount:'ceil',tr:1.09,shift:44,aspect:'16:10',eco:false},
+  {id:2,name:'P2',x:12.2,y:3.6,z:1.0,yaw:0,pitch:0,mount:'stand',tr:1.3,shift:30,aspect:'16:10',eco:false},
+  {id:3,name:'P3',x:2,y:3.1,z:3.6,yaw:90,pitch:-90,mount:'ceil',tr:1.09,shift:0,aspect:'16:10',eco:false}]}}
+let state=defaults();
+try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&Array.isArray(s.ps)&&s.ps.length)state=Object.assign(defaults(),s)}catch(e){}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}};
+const colorOf=p=>COLORS[(p.id-1)%COLORS.length];
+const sel=()=>state.ps.find(p=>p.id===state.sel)||state.ps[0];
+
+/* ---------- optics ---------- */
+function cast(o,d){let best=1e9,surf=-1;
+  if(d[2]<-1e-9){const t=-o[2]/d[2];if(t<best){best=t;surf=0}}
+  if(d[2]>1e-9){const t=(state.H-o[2])/d[2];if(t<best){best=t;surf=1}}
+  for(let i=0;i<SEGS.length;i++){const g=SEGS[i],ex=g.bx-g.ax,ey=g.by-g.ay,den=d[0]*ey-d[1]*ex;
+    if(Math.abs(den)<1e-12)continue;const wx=g.ax-o[0],wy=g.ay-o[1];
+    const t=(wx*ey-wy*ex)/den,s=(wx*d[1]-wy*d[0])/den;
+    if(t>1e-4&&s>=-1e-6&&s<=1+1e-6&&t<best){best=t;surf=2+i}}
+  return[best,surf]}
+const dist3=(P,a,b)=>Math.hypot(P[a*3]-P[b*3],P[a*3+1]-P[b*3+1],P[a*3+2]-P[b*3+2]);
+function compute(p){
+  const th=p.yaw*D,ph=p.pitch*D,c=Math.cos(ph),s=Math.sin(ph);
+  const f=[c*Math.cos(th),c*Math.sin(th),s],r=[-Math.sin(th),Math.cos(th),0],u=[-s*Math.cos(th),-s*Math.sin(th),c];
+  const [ax,ay]=ASPECT[p.aspect]||[1,1],hw=1/(2*p.tr),hh=hw/1.6;
+  const off=p.shift/100*2*hh*(p.mount==='ceil'?-1:1),o=[p.x,p.y,p.z];
+  const n=(NX+1)*(NY+1),P=new Float32Array(n*3),T=new Float32Array(n),S=new Int16Array(n);
+  for(let j=0;j<=NY;j++)for(let i=0;i<=NX;i++){
+    const a=(i/NX*2-1)*hw*ax,b=(j/NY*2-1)*hh*ay+off,k=j*(NX+1)+i;
+    const d=[f[0]+a*r[0]+b*u[0],f[1]+a*r[1]+b*u[1],f[2]+a*r[2]+b*u[2]];
+    const [t,sf]=cast(o,d),tt=t-0.02/Math.hypot(d[0],d[1],d[2]);
+    P[k*3]=o[0]+d[0]*tt;P[k*3+1]=o[1]+d[1]*tt;P[k*3+2]=o[2]+d[2]*tt;T[k]=t;S[k]=sf}
+  const idx=[];let area=0;
+  const tri=(a,b,c2)=>{const mn=Math.min(T[a],T[b],T[c2]),mx=Math.max(T[a],T[b],T[c2]);
+    if(!(S[a]===S[b]&&S[b]===S[c2])&&mx/mn>1.3)return;idx.push(a,b,c2);
+    const e=[P[b*3]-P[a*3],P[b*3+1]-P[a*3+1],P[b*3+2]-P[a*3+2]],g=[P[c2*3]-P[a*3],P[c2*3+1]-P[a*3+1],P[c2*3+2]-P[a*3+2]];
+    area+=.5*Math.hypot(e[1]*g[2]-e[2]*g[1],e[2]*g[0]-e[0]*g[2],e[0]*g[1]-e[1]*g[0])};
+  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){const a=j*(NX+1)+i,b=a+1,c2=a+NX+1,d2=c2+1;tri(a,b,d2);tri(a,d2,c2)}
+  const at=(i,j)=>j*(NX+1)+i,ci=at(NX/2,NY/2);
+  const W=dist3(P,at(0,NY/2),at(NX,NY/2)),Hh=dist3(P,at(NX/2,0),at(NX/2,NY)),diag=dist3(P,at(0,0),at(NX,NY));
+  const border=[];for(let i=0;i<=NX;i++)border.push(at(i,0));for(let j=1;j<=NY;j++)border.push(at(NX,j));
+  for(let i=NX-1;i>=0;i--)border.push(at(i,NY));for(let j=NY-1;j>0;j--)border.push(at(0,j));
+  const lm=SPEC.lm*(p.eco?SPEC.eco:1)*state.lamp/100*ax*ay,lux=lm/Math.max(area,.01);
+  let kV,kH=0;const cs=S[ci];
+  if(cs>=2){const g=SEGS[cs-2],fl=Math.hypot(f[0],f[1]);kV=Math.abs(p.pitch);
+    kH=fl>1e-6?Math.acos(Math.max(-1,Math.min(1,-(f[0]*g.nx+f[1]*g.ny)/fl)))/D:0}
+  else kV=90-Math.abs(p.pitch);
+  const surfName=cs===0?'바닥':cs===1?'천장':(SEGS[cs-2].room?'벽':'기둥');
+  return{P,idx,border,area,W,Hh,diag,lux,contrast:(lux+state.amb)/state.amb,throw:T[ci]*1,kV,kH,surfName,
+    corners:[at(0,0),at(NX,0),at(NX,NY),at(0,NY)],multi:new Set(S).size>1}}
+function grade(c){return c>=20?['선명','good']:c>=8?['양호','good']:c>=3?['흐릿함','warn']:['거의 안 보임','bad']}
+
+/* ---------- plan (SVG) ---------- */
+const plan=$('#plan'),dyn=$('#dyn');
+(function staticPlan(){const pts=ROOM.map(p=>p.join(',')).join(' ');$('#rcp').setAttribute('points',pts);
+  let s='<g clip-path="url(#rc)">';
+  for(let x=1;x<16;x++)s+=`<line class="g" x1="${x}" y1="0" x2="${x}" y2="7.4"/>`;
+  for(let y=1;y<8;y++)s+=`<line class="g" x1="0" y1="${y}" x2="15.9" y2="${y}"/>`;
+  s+=`</g><polygon class="room" points="${pts}" fill-opacity="0"/>`;
+  s+=`<polygon class="colm" points="${COL.map(p=>p.join(',')).join(' ')}"/>`;
+  s+=`<line class="door" x1="${DOOR[0]}" y1="6.6" x2="${DOOR[1]}" y2="6.6"/><path class="doorl" d="M${DOOR[0]} 6.6 A.9 .9 0 0 0 ${DOOR[0]+.9} 7.5 A.9 .9 0 0 0 ${DOOR[1]} 6.6"/>`;
+  s+=`<text x="${(DOOR[0]+DOOR[1])/2}" y="7.9" text-anchor="middle">출입문</text>`;
+  s+=`<line class="door" x1="0.1" y1="0" x2="1.2" y2="0"/><text x="0.65" y="-0.2" text-anchor="middle">출입구</text>`;
+  s+=`<line class="dim" x1="0" y1="-0.55" x2="15.83" y2="-0.55"/><line class="dim" x1="0" y1="-.68" x2="0" y2="-.42"/><line class="dim" x1="15.83" y1="-.68" x2="15.83" y2="-.42"/>`;
+  s+=`<text x="7.9" y="-0.62" text-anchor="middle">15.83</text>`;
+  s+=`<line class="dim" x1="16.3" y1="0" x2="16.3" y2="6.6"/><line class="dim" x1="16.17" y1="0" x2="16.43" y2="0"/><line class="dim" x1="16.17" y1="6.6" x2="16.43" y2="6.6"/>`;
+  s+=`<text x="16.4" y="3.4" >6.60</text><text x="7.25" y="6.95" text-anchor="middle">기둥</text>`;
+  $('#static').innerHTML=s})();
+function drawPlan(res){let s='';
+  state.ps.forEach((p,i)=>{const R=res[i],col=colorOf(p),P=R.P;
+    const pts=R.border.map(k=>P[k*3].toFixed(2)+','+P[k*3+1].toFixed(2)).join(' ');
+    s+=`<polygon points="${p.x},${p.y} ${pts}" fill="${col}" fill-opacity=".13" stroke="none"/>`;
+    s+=`<polygon points="${pts}" fill="${col}" fill-opacity=".22" stroke="${col}" stroke-width=".07" stroke-linejoin="round"/>`});
+  state.ps.forEach(p=>{const col=colorOf(p),on=p.id===state.sel,hx=p.x+Math.cos(p.yaw*D),hy=p.y+Math.sin(p.yaw*D);
+    s+=`<line x1="${p.x}" y1="${p.y}" x2="${hx}" y2="${hy}" stroke="${col}" stroke-width=".04"/>`;
+    s+=`<g transform="translate(${p.x} ${p.y}) rotate(${p.yaw})"><rect x="-.19" y="-.2" width=".33" height=".4" rx=".04" fill="${col}" stroke="var(--ink)" stroke-width="${on?.06:.02}"/><rect x=".14" y="-.13" width=".07" height=".12" fill="var(--ink)"/></g>`;
+    s+=`<circle cx="${hx}" cy="${hy}" r=".15" fill="var(--surface)" stroke="${col}" stroke-width=".05"/>`;
+    s+=`<text class="nm" x="${p.x}" y="${p.y-.38}" text-anchor="middle">${p.name}</text>`;
+    s+=`<circle data-id="${p.id}" data-role="rot" cx="${hx}" cy="${hy}" r=".3" fill="transparent"/>`;
+    s+=`<circle data-id="${p.id}" data-role="body" cx="${p.x}" cy="${p.y}" r=".42" fill="transparent"/>`});
+  dyn.innerHTML=s}
+let drag=null;
+function svgPt(e){const pt=plan.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;return pt.matrixTransform(plan.getScreenCTM().inverse())}
+plan.addEventListener('pointerdown',e=>{const t=e.target.closest('[data-role]');if(!t)return;e.preventDefault();
+  const p=state.ps.find(q=>q.id===+t.dataset.id);if(!p)return;const m=svgPt(e);
+  drag={p,role:t.dataset.role,dx:p.x-m.x,dy:p.y-m.y};plan.setPointerCapture(e.pointerId);
+  if(state.sel!==p.id){state.sel=p.id;renderPanel()}schedule()});
+plan.addEventListener('pointermove',e=>{if(!drag)return;const m=svgPt(e),p=drag.p;
+  if(drag.role==='body'){const x=+(m.x+drag.dx).toFixed(2),y=+(m.y+drag.dy).toFixed(2);
+    if(inRoom(x,y)){p.x=x;p.y=y}else if(inRoom(x,p.y))p.x=x;else if(inRoom(p.x,y))p.y=y}
+  else p.yaw=Math.round((Math.atan2(m.y-p.y,m.x-p.x)/D+360)%360);
+  schedule()});
+const endDrag=()=>{drag=null};plan.addEventListener('pointerup',endDrag);plan.addEventListener('pointercancel',endDrag);
+
+/* ---------- 3D ---------- */
+let T3=null;const objs=new Map();
+function init3D(){
+  if(!window.THREE)throw new Error('3D 라이브러리를 불러오지 못했습니다');
+  const cv=$('#gl'),box=$('#view3d');
+  const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+  const scene=new THREE.Scene();scene.background=new THREE.Color(0x0b0e12);
+  const cam=new THREE.PerspectiveCamera(50,16/9,.05,200);
+  const ctl=new THREE.OrbitControls(cam,cv);ctl.maxPolarAngle=Math.PI/2-.01;
+  const roomG=new THREE.Group();scene.add(roomG);
+  T3={renderer,scene,cam,ctl,roomG,dirty:true};
+  ctl.addEventListener('change',()=>T3.dirty=true);
+  const fit=()=>{const w=box.clientWidth,h=box.clientHeight;if(!w||!h)return;renderer.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();T3.dirty=true};
+  new ResizeObserver(fit).observe(box);fit();view('iso');buildRoom();
+  (function loop(){requestAnimationFrame(loop);if(T3.dirty){T3.dirty=false;renderer.render(scene,cam)}})()}
+function view(v){if(!T3)return;const {cam,ctl}=T3,H=state.H;
+  if(v==='top'){cam.position.set(7.9,19,3.45);ctl.target.set(7.9,0,3.4)}
+  else if(v==='eye'){cam.position.set(14.3,1.6,6.0);ctl.target.set(6,1.5,2.4)}
+  else{cam.position.set(8.5,H+6.5,15.5);ctl.target.set(7.9,1,3.2)}
+  ctl.update();T3.dirty=true}
+function quad(a,b,c,d,inw,color){let v=[a,b,c,a,c,d];
+  const e1=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],e2=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+  const n=[e1[1]*e2[2]-e1[2]*e2[1],e1[2]*e2[0]-e1[0]*e2[2],e1[0]*e2[1]-e1[1]*e2[0]];
+  if(n[0]*inw[0]+n[1]*inw[1]+n[2]*inw[2]<0)v=[a,c,b,a,d,c];
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v.flat(),3));
+  return new THREE.Mesh(g,new THREE.MeshBasicMaterial({color}))}
+function buildRoom(){if(!T3)return;const G=T3.roomG,H=state.H;
+  while(G.children.length){const c=G.children.pop();c.geometry&&c.geometry.dispose();c.material&&c.material.dispose()}
+  const sh=new THREE.Shape(ROOM.map(p=>new THREE.Vector2(p[0],p[1])));const fg=new THREE.ShapeGeometry(sh);fg.rotateX(Math.PI/2);
+  G.add(new THREE.Mesh(fg,new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL(.6,.1,.12),side:THREE.DoubleSide})));
+  const lines=[];
+  SEGS.forEach((g,i)=>{const col=new THREE.Color().setHSL(.6,.09,g.room?.19+.05*Math.abs(g.nx)+.015*(i%2):.27+.04*Math.abs(g.nx));
+    G.add(quad([g.ax,0,g.ay],[g.bx,0,g.by],[g.bx,H,g.by],[g.ax,H,g.ay],[g.nx,0,g.ny],col));
+    lines.push(g.ax,0,g.ay,g.bx,0,g.by, g.ax,H,g.ay,g.bx,H,g.by, g.ax,0,g.ay,g.ax,H,g.ay)});
+  const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lines,3));
+  G.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x566270})));
+  G.add(quad([DOOR[0],0,6.585],[DOOR[1],0,6.585],[DOOR[1],2.1,6.585],[DOOR[0],2.1,6.585],[0,0,-1],new THREE.Color(0x3d4854)));
+  T3.dirty=true}
+function drawTex(o,p){const cv=o.cv,c=cv.getContext('2d'),w=cv.width,h=cv.height,pat=state.pattern;
+  c.fillStyle='#fff';c.fillRect(0,0,w,h);
+  if(pat==='bars'){['#fff','#ff0','#0ff','#0f0','#f0f','#f00','#00f','#111'].forEach((k,i)=>{c.fillStyle=k;c.fillRect(i*w/8,0,w/8+1,h)})}
+  if(pat==='grid'){c.strokeStyle='#222';c.lineWidth=2;for(let x=0;x<=w;x+=40){c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke()}
+    for(let y=0;y<=h;y+=40){c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke()}
+    c.lineWidth=6;c.beginPath();c.arc(w/2,h/2,150,0,7);c.stroke();c.fillStyle='#fff';c.fillRect(w/2-90,h/2-50,180,100);
+    c.fillStyle='#111';c.font='600 84px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(p.name,w/2,h/2+4)}
+  c.strokeStyle=colorOf(p);c.lineWidth=14;c.strokeRect(7,7,w-14,h-14);o.tex.needsUpdate=true;o.pat=pat}
+function make3(p){const n=(NX+1)*(NY+1),geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  const uv=new Float32Array(n*2);for(let j=0;j<=NY;j++)for(let i=0;i<=NX;i++){const k=j*(NX+1)+i;uv[k*2]=i/NX;uv[k*2+1]=j/NY}
+  geo.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  const cv=document.createElement('canvas');cv.width=640;cv.height=400;const tex=new THREE.CanvasTexture(cv);
+  const mesh=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({map:tex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  mesh.frustumCulled=false;const col=new THREE.Color(colorOf(p));
+  const body=new THREE.Mesh(new THREE.BoxGeometry(.39,.125,.33),new THREE.MeshBasicMaterial({color:col}));
+  const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(30),3));
+  const lines=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:.6}));lines.frustumCulled=false;
+  T3.scene.add(mesh,body,lines);const o={mesh,body,lines,cv,tex,pat:null};drawTex(o,p);return o}
+function sync3D(res){if(!T3)return;
+  for(const [id,o] of objs)if(!state.ps.some(p=>p.id===id)){T3.scene.remove(o.mesh,o.body,o.lines);
+    [o.mesh,o.body,o.lines].forEach(m=>{m.geometry.dispose();m.material.dispose()});o.tex.dispose();objs.delete(id)}
+  state.ps.forEach((p,i)=>{let o=objs.get(p.id);if(!o){o=make3(p);objs.set(p.id,o)}
+    if(o.pat!==state.pattern)drawTex(o,p);
+    const R=res[i],pos=o.mesh.geometry.attributes.position,A=pos.array,P=R.P;
+    for(let k=0;k<P.length;k+=3){A[k]=P[k];A[k+1]=P[k+2];A[k+2]=P[k+1]}
+    pos.needsUpdate=true;o.mesh.geometry.setIndex(R.idx);
+    o.mesh.material.opacity=Math.max(.1,Math.min(1,R.lux/(R.lux+state.amb*2+25)));
+    const th=p.yaw*D,ph=p.pitch*D,c=Math.cos(ph);
+    o.body.position.set(p.x,p.z,p.y);o.body.lookAt(p.x+c*Math.cos(th),p.z+Math.sin(ph),p.y+c*Math.sin(th));
+    const L=o.lines.geometry.attributes.position.array;
+    R.corners.forEach((k,q)=>{L.set([p.x,p.z,p.y,P[k*3],P[k*3+2],P[k*3+1]],q*6)});
+    L.set([p.x,p.z,p.y,p.x,p.mount==='ceil'?state.H:0,p.y],24);o.lines.geometry.attributes.position.needsUpdate=true});
+  T3.dirty=true}
+
+/* ---------- panel ---------- */
+const FIELDS=[
+  {k:'z',label:'렌즈 높이 (바닥 기준)',min:.1,max:()=>+(state.H-.1).toFixed(2),step:.05,fmt:v=>v.toFixed(2)+' m'},
+  {k:'yaw',label:'방향 (0°=도면 오른쪽, 90°=아래)',min:0,max:359,step:1,fmt:v=>v+'°'},
+  {k:'pitch',label:'기울기 (+ 위로 / − 아래로)',min:-90,max:90,step:1,fmt:v=>(v>0?'+':'')+v+'°'},
+  {k:'tr',label:'줌 (투사비)',min:SPEC.trMin,max:SPEC.trMax,step:.01,fmt:v=>v.toFixed(2)+' : 1'},
+  {k:'shift',label:'렌즈 시프트 (수직)',min:0,max:SPEC.shiftMax,step:1,fmt:v=>v+'%'}];
+function renderChips(){$('#chips').innerHTML=state.ps.map(p=>`<button data-id="${p.id}" class="${p.id===state.sel?'on':''}"><span class="dot" style="background:${colorOf(p)}"></span>${p.name}</button>`).join('')}
+function renderPanel(){renderChips();const p=sel();if(!p){$('#panel').innerHTML='<p class="note">프로젝터가 없습니다. 프로젝터 추가를 누르세요.</p>';return}
+  let h=`<div class="seg" id="mount"><button data-m="ceil" class="${p.mount==='ceil'?'on':''}">천장 행잉</button><button data-m="stand" class="${p.mount==='stand'?'on':''}">스탠드·바닥</button></div>`;
+  FIELDS.forEach(f=>{const mx=typeof f.max==='function'?f.max():f.max;
+    h+=`<div class="row"><label for="f-${f.k}">${f.label}</label><output id="o-${f.k}">${f.fmt(+p[f.k])}</output><input type="range" id="f-${f.k}" data-k="${f.k}" min="${f.min}" max="${mx}" step="${f.step}" value="${p[f.k]}"></div>`});
+  h+=`<div class="row"><label for="f-aspect">영상 화면비</label><span></span><select id="f-aspect" data-k="aspect">${Object.keys(ASPECT).map(a=>`<option${a===p.aspect?' selected':''}>${a}</option>`).join('')}</select></div>`;
+  h+=`<div class="row"><label for="f-eco">램프 출력</label><span></span><select id="f-eco" data-k="eco"><option value="0"${p.eco?'':' selected'}>보통 (100%)</option><option value="1"${p.eco?' selected':''}>에코 (약 80%, 추정)</option></select></div>`;
+  h+=`<div class="btns" id="quick"><button data-q="wall">수평으로</button><button data-q="floor">바닥 투사</button><button data-q="dup">복제</button><button data-q="del">삭제</button></div>`;
+  $('#panel').innerHTML=h}
+$('#chips').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;state.sel=+b.dataset.id;renderPanel();schedule()});
+$('#panel').addEventListener('input',e=>{const k=e.target.dataset.k,p=sel();if(!k||!p)return;
+  if(k==='aspect')p.aspect=e.target.value;else if(k==='eco')p.eco=e.target.value==='1';else p[k]=+e.target.value;schedule()});
+$('#panel').addEventListener('click',e=>{const b=e.target.closest('button'),p=sel();if(!b||!p)return;
+  if(b.dataset.m){p.mount=b.dataset.m;p.z=p.mount==='ceil'?+(state.H-.4).toFixed(2):1;if(p.pitch===-90&&p.mount==='stand')p.pitch=0}
+  else if(b.dataset.q==='wall')p.pitch=0;
+  else if(b.dataset.q==='floor'){p.mount='ceil';p.z=+(state.H-.4).toFixed(2);p.pitch=-90;p.shift=0}
+  else if(b.dataset.q==='dup')addProj(Object.assign({},p));
+  else if(b.dataset.q==='del'){state.ps=state.ps.filter(q=>q!==p);state.sel=state.ps.length?state.ps[0].id:0}
+  else return;renderPanel();schedule()});
+function addProj(base){if(state.ps.length>=MAXP)return;const id=state.next++;
+  const p=Object.assign({x:7.9,y:3.3,z:+(state.H-.4).toFixed(2),yaw:270,pitch:0,mount:'ceil',tr:1.09,shift:44,aspect:'16:10',eco:false},base||{},{id,name:'P'+id});
+  for(const [dx,dy] of [[.6,.5],[-.6,.5],[.6,-.5],[-.6,-.5],[0,0]])if(base&&inRoom(p.x+dx,p.y+dy)){p.x=+(p.x+dx).toFixed(2);p.y=+(p.y+dy).toFixed(2);break}
+  state.ps.push(p);state.sel=id}
+$('#btn-add').addEventListener('click',()=>{addProj();renderPanel();schedule()});
+$('#btn-reset').addEventListener('click',()=>{state=defaults();syncGlobals();buildRoom();renderPanel();schedule()});
+$('#views').addEventListener('click',e=>{const b=e.target.closest('button');if(b)view(b.dataset.v)});
+function syncGlobals(){$('#g-H').value=state.H;$('#g-amb').value=state.amb;$('#g-pat').value=state.pattern;$('#g-lamp').value=state.lamp}
+$('#g-H').addEventListener('input',e=>{state.H=+e.target.value;state.ps.forEach(p=>{if(p.mount==='ceil')p.z=+(state.H-.4).toFixed(2);p.z=Math.min(p.z,state.H-.1)});buildRoom();renderPanel();schedule()});
+$('#g-amb').addEventListener('input',e=>{state.amb=+e.target.value;schedule()});
+$('#g-pat').addEventListener('input',e=>{state.pattern=e.target.value;schedule()});
+$('#g-lamp').addEventListener('input',e=>{state.lamp=+e.target.value;schedule()});
+
+/* ---------- readouts ---------- */
+const m2=v=>v.toFixed(2),inch=v=>Math.round(v/.0254);
+function drawSum(res){let h='<tr><th>프로젝터</th><th>설치</th><th>투사면</th><th>거리</th><th>화면 (폭×높이)</th><th>대각</th><th>조도</th><th>명암비</th><th>보임</th></tr>';
+  state.ps.forEach((p,i)=>{const R=res[i],[g,cl]=grade(R.contrast);
+    h+=`<tr><td><span class="dot" style="background:${colorOf(p)}"></span>${p.name}</td><td>${p.mount==='ceil'?'천장':'스탠드'} ${m2(p.z)} m</td><td>${R.surfName}${R.multi?' 외':''}</td><td class="num">${m2(R.throw)} m</td><td class="num">${m2(R.W)} × ${m2(R.Hh)} m</td><td class="num">${inch(R.diag)}″</td><td class="num">${Math.round(R.lux)} lx</td><td class="num">${R.contrast.toFixed(1)} : 1</td><td><span class="pill ${cl}">${g}</span></td></tr>`});
+  if(!state.ps.length)h+='<tr><td colspan="9">프로젝터가 없습니다.</td></tr>';$('#sum').innerHTML=h}
+function drawRead(res){const p=sel(),i=state.ps.indexOf(p);if(!p){$('#read').innerHTML='';$('#alerts').innerHTML='';return}
+  const R=res[i],[g,cl]=grade(R.contrast),px=R.W/(SPEC.resX*(ASPECT[p.aspect]||[1])[0])*1000;
+  $('#read').innerHTML=`<dt>위치 (x, y)</dt><dd>${m2(p.x)}, ${m2(p.y)} m</dd><dt>투사면 / 거리</dt><dd>${R.surfName} / ${m2(R.throw)} m</dd>
+   <dt>화면 폭 × 높이</dt><dd>${m2(R.W)} × ${m2(R.Hh)} m</dd><dt>대각선</dt><dd>${inch(R.diag)}″ (${m2(R.diag)} m)</dd>
+   <dt>비추는 면적</dt><dd>${R.area.toFixed(1)} m²</dd><dt>평균 조도</dt><dd>${Math.round(R.lux)} lx</dd>
+   <dt>주변 대비 명암비</dt><dd>${R.contrast.toFixed(1)} : 1 <span class="pill ${cl}">${g}</span></dd>
+   <dt>픽셀 1개 크기</dt><dd>${px.toFixed(1)} mm</dd><dt>필요한 키스톤</dt><dd>V ${Math.round(R.kV)}° / H ${Math.round(R.kH)}°</dd>`;
+  const a=[];
+  if(R.kV>SPEC.kV+.5||R.kH>SPEC.kH+.5)a.push(`사다리꼴 왜곡이 본체 키스톤 보정 범위(V ±${SPEC.kV}°, H ±${SPEC.kH}°)를 넘습니다. 정면에 가깝게 놓거나 영상 쪽에서 매핑 보정이 필요합니다.`);
+  if(Math.abs(p.pitch)>SPEC.tilt)a.push(`기울기가 ${SPEC.tilt}°를 넘습니다. 램프 방식 기종은 설치 각도 제한이 있을 수 있으니 사용설명서를 확인하거나 거울 반사를 검토하세요.`);
+  if(R.multi)a.push('빛이 두 개 이상의 면(모서리·바닥·기둥 등)에 걸칩니다.');
+  const di=inch(R.diag);if(di<30||di>300)a.push(`대각 ${di}″는 권장 화면 크기(30–300″) 밖이라 초점이 맞지 않을 수 있습니다.`);
+  $('#alerts').innerHTML=a.map(t=>`<p class="alert">${t}</p>`).join('');
+  FIELDS.forEach(f=>{const el=$('#f-'+f.k),o=$('#o-'+f.k);if(!el)return;if(document.activeElement!==el)el.value=p[f.k];o.textContent=f.fmt(+p[f.k])})}
+(function distTable(){let h='<tr><th>거리</th><th>광각 화면</th><th>광각 대각</th><th>광각 조도</th><th>망원 화면</th><th>망원 대각</th><th>망원 조도</th></tr>';
+  [1,2,3,4,5,6,8,10].forEach(d=>{const c=tr=>{const w=d/tr,hh=w/1.6;return`<td class="num">${m2(w)} × ${m2(hh)} m</td><td class="num">${inch(Math.hypot(w,hh))}″</td><td class="num">${Math.round(SPEC.lm/(w*hh)).toLocaleString()} lx</td>`};
+    h+=`<tr><td class="num">${d} m</td>${c(SPEC.trMin)}${c(SPEC.trMax)}</tr>`});$('#dist').innerHTML=h})();
+
+let pending=false;
+function schedule(){if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;update()})}
+function update(){const res=state.ps.map(compute);drawPlan(res);sync3D(res);drawSum(res);drawRead(res);renderChipsIfNeeded();
+  $('#o-H').textContent=state.H.toFixed(1)+' m';$('#o-amb').textContent=state.amb+' lx';$('#o-lamp').textContent=state.lamp+'%';save()}
+let chipSig='';function renderChipsIfNeeded(){const s=state.sel+'|'+state.ps.map(p=>p.id).join(',');if(s!==chipSig){chipSig=s;renderChips()}}
+
+try{init3D()}catch(e){$('#view3d').innerHTML='<div class="msg">이 기기에서는 3D 미리보기를 표시할 수 없습니다. 평면도와 수치는 그대로 사용할 수 있습니다.</div>';T3=null}
+syncGlobals();renderPanel();update();
+})();
+</script>
