@@ -99,9 +99,9 @@ dt{color:var(--muted);font-size:12px}dd{margin:0;text-align:right;font-family:va
 
   <div class="card">
     <div class="bar"><h2>3D 미리보기</h2>
-      <div class="btns" id="views"><button data-v="iso">조감</button><button data-v="top">위에서</button><button data-v="eye">눈높이</button></div></div>
+      <div class="btns" id="views"><button data-amb="300">조명 켬</button><button data-amb="5">조명 끔</button><button data-v="iso">조감</button><button data-v="top">위에서</button><button data-v="eye">눈높이</button></div></div>
     <div id="view3d"><canvas id="gl"></canvas></div>
-    <p class="hint">끌어서 회전, 휠·핀치로 확대, 오른쪽 버튼(또는 두 손가락)으로 이동. 화면 밝기는 주변 밝기 대비 조도를 반영합니다.</p>
+    <p class="hint">끌어서 회전, 휠·핀치로 확대, 오른쪽 버튼(또는 두 손가락)으로 이동. 조명을 켜면 흰 벽이 밝아져 투사 화면의 검은 부분이 벽 밝기까지 떠 보이는 것을 반영합니다. 조명 기구 위치는 현장 사진을 참고한 임의 배치입니다.</p>
   </div>
 
   <div class="card">
@@ -121,7 +121,7 @@ dt{color:var(--muted);font-size:12px}dd{margin:0;text-align:right;font-family:va
     <h2>공간 · 공통</h2>
     <div class="row"><label for="g-H">천장 높이</label><output id="o-H"></output><input type="range" id="g-H" min="2.5" max="6" step="0.1"></div>
     <div class="row"><label for="g-amb">주변 밝기</label><output id="o-amb"></output>
-      <select id="g-amb"><option value="5">암전 (약 5 lx)</option><option value="30">어두운 전시 조명 (약 30 lx)</option><option value="100">은은한 실내 (약 100 lx)</option><option value="300">일반 사무실 조명 (약 300 lx)</option></select></div>
+      <select id="g-amb"><option value="5">암전 · 조명 끔 (약 5 lx)</option><option value="30">어두운 전시 조명 (약 30 lx)</option><option value="100">조명 일부만 켬 (약 100 lx)</option><option value="300">천장 조명 전체 켬 (약 300 lx)</option><option value="500">조명 전체 + 밝은 낮 (약 500 lx)</option></select></div>
     <div class="row"><label for="g-pat">투사 영상</label><span></span>
       <select id="g-pat"><option value="grid">격자 테스트 패턴</option><option value="white">전체 흰색</option><option value="bars">컬러 바</option></select></div>
     <div class="row"><label for="g-lamp">램프 상태 (노후 반영)</label><output id="o-lamp"></output><input type="range" id="g-lamp" min="40" max="100" step="5"></div>
@@ -291,24 +291,48 @@ function view(v){if(!T3)return;const {cam,ctl}=T3,H=state.H;
   else if(v==='eye'){cam.position.set(14.3,1.6,6.0);ctl.target.set(6,1.5,2.4)}
   else{cam.position.set(8.5,H+6.5,15.5);ctl.target.set(7.9,1,3.2)}
   ctl.update();T3.dirty=true}
-function quad(a,b,c,d,inw,color){let v=[a,b,c,a,c,d];
+function quad(a,b,c,d,inw,mat){let v=[a,b,c,a,c,d];
   const e1=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],e2=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
   const n=[e1[1]*e2[2]-e1[2]*e2[1],e1[2]*e2[0]-e1[0]*e2[2],e1[0]*e2[1]-e1[1]*e2[0]];
   if(n[0]*inw[0]+n[1]*inw[1]+n[2]*inw[2]<0)v=[a,c,b,a,d,c];
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v.flat(),3));
-  return new THREE.Mesh(g,new THREE.MeshBasicMaterial({color}))}
-function buildRoom(){if(!T3)return;const G=T3.roomG,H=state.H;
-  while(G.children.length){const c=G.children.pop();c.geometry&&c.geometry.dispose();c.material&&c.material.dispose()}
-  const sh=new THREE.Shape(ROOM.map(p=>new THREE.Vector2(p[0],p[1])));const fg=new THREE.ShapeGeometry(sh);fg.rotateX(Math.PI/2);
-  G.add(new THREE.Mesh(fg,new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL(.6,.1,.12),side:THREE.DoubleSide})));
+  g.computeVertexNormals();return new THREE.Mesh(g,mat)}
+const wallLevel=()=>.5*Math.pow(state.amb/300,.4);
+function buildRoom(){if(!T3)return;const G=T3.roomG,H=state.H,M=THREE;
+  G.traverse(c=>{c.geometry&&c.geometry.dispose();c.material&&c.material.dispose()});while(G.children.length)G.remove(G.children[0]);
+  const std=(color,roughness,o)=>new M.MeshStandardMaterial(Object.assign({color,roughness,metalness:0},o||{}));
+  const bas=color=>new M.MeshBasicMaterial({color});
+  const sh=new M.Shape(ROOM.map(p=>new M.Vector2(p[0],p[1])));
+  const fg=new M.ShapeGeometry(sh);fg.rotateX(Math.PI/2);G.add(new M.Mesh(fg,std(0x9d9e9b,.5,{side:M.DoubleSide})));
+  const cg=new M.ShapeGeometry(sh);cg.rotateX(Math.PI/2);cg.translate(0,H,0);G.add(new M.Mesh(cg,std(0xf4f4f0,1)));
   const lines=[];
-  SEGS.forEach((g,i)=>{const col=new THREE.Color().setHSL(.6,.09,g.room?.19+.05*Math.abs(g.nx)+.015*(i%2):.27+.04*Math.abs(g.nx));
-    G.add(quad([g.ax,0,g.ay],[g.bx,0,g.by],[g.bx,H,g.by],[g.ax,H,g.ay],[g.nx,0,g.ny],col));
+  SEGS.forEach(g=>{G.add(quad([g.ax,0,g.ay],[g.bx,0,g.by],[g.bx,H,g.by],[g.ax,H,g.ay],[g.nx,0,g.ny],std(g.room?0xf1f1ec:0xe6e6e1,.95)));
     lines.push(g.ax,0,g.ay,g.bx,0,g.by, g.ax,H,g.ay,g.bx,H,g.by, g.ax,0,g.ay,g.ax,H,g.ay)});
-  const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lines,3));
-  G.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x566270})));
-  G.add(quad([DOOR[0],0,6.585],[DOOR[1],0,6.585],[DOOR[1],2.1,6.585],[DOOR[0],2.1,6.585],[0,0,-1],new THREE.Color(0x3d4854)));
-  T3.dirty=true}
+  const lg=new M.BufferGeometry();lg.setAttribute('position',new M.Float32BufferAttribute(lines,3));
+  G.add(new M.LineSegments(lg,new M.LineBasicMaterial({color:0x7c8691})));
+  G.add(quad([DOOR[0],0,6.585],[DOOR[1],0,6.585],[DOOR[1],2.1,6.585],[DOOR[0],2.1,6.585],[0,0,-1],std(0x6b7480,.6)));
+  /* lighting: ambient + track spots + recessed downlights (layout approximated from a site photo) */
+  T3.amb=new M.AmbientLight(0xffffff,1);G.add(T3.amb);T3.spots=[];T3.lenses=[];
+  const lamp=(x,y,z,tx,ty,tz,ang)=>{const l=new M.SpotLight(0xfff0dc,1,11,ang,.8,1);l.position.set(x,z,y);l.target.position.set(tx,tz,ty);G.add(l,l.target);T3.spots.push(l)};
+  const wires=[];
+  [[2.0,3,13,[4,7.5,11],0.15],[4.3,4,12.5,[5,8.5,12],6.3]].forEach(([y,x0,x1,xs,ty])=>{const zt=H-.5;
+    const tr=new M.Mesh(new M.BoxGeometry(x1-x0,.035,.04),bas(0x15171a));tr.position.set((x0+x1)/2,zt,y);G.add(tr);
+    for(let x=x0+.5;x<x1;x+=3)wires.push(x,H,y,x,zt,y);
+    xs.forEach(x=>{const cyl=new M.CylinderGeometry(.065,.075,.22,16);cyl.rotateX(Math.PI/2);
+      const b=new M.Mesh(cyl,bas(0x15171a));b.position.set(x,zt-.14,y);b.lookAt(x,1.7,ty);
+      const ln=new M.Mesh(new M.CircleGeometry(.06,16),bas(0xffffff));ln.position.z=.112;b.add(ln);T3.lenses.push(ln);G.add(b);
+      wires.push(x,zt,y,x,zt-.05,y);lamp(x,y,zt-.14,x,ty,1.7,.62)})});
+  [[2,3],[5.6,3.2],[9.2,3.2],[14.4,3.2]].forEach(([x,y])=>{const f=new M.Mesh(new M.BoxGeometry(.2,.02,.2),bas(0xd9d9d6));f.position.set(x,H-.01,y);G.add(f);
+    const pg=new M.PlaneGeometry(.12,.12);pg.rotateX(Math.PI/2);const ln=new M.Mesh(pg,bas(0xffffff));ln.position.set(x,H-.022,y);G.add(ln);T3.lenses.push(ln);
+    lamp(x,y,H-.03,x,y,0,.75)});
+  const ac=new M.Mesh(new M.BoxGeometry(.84,.05,.84),std(0xe9e9e6,.8));ac.position.set(12,H-.025,3.1);G.add(ac);
+  const ai=new M.Mesh(new M.BoxGeometry(.5,.054,.5),std(0xb4b8ba,.8));ai.position.set(12,H-.025,3.1);G.add(ai);
+  const wg=new M.BufferGeometry();wg.setAttribute('position',new M.Float32BufferAttribute(wires,3));G.add(new M.LineSegments(wg,new M.LineBasicMaterial({color:0x8a8f94})));
+  applyLighting()}
+function applyLighting(){if(!T3||!T3.amb)return;const w=wallLevel(),on=state.amb>=100?1:state.amb>=30?.4:0;
+  T3.amb.intensity=w;T3.spots.forEach(l=>l.intensity=w*.75*(on?1:0));
+  T3.lenses.forEach(m=>m.material.color.setRGB(.06+.94*on,.06+.9*on,.06+.82*on));
+  T3.scene.background.setScalar(.03+.05*w);T3.dirty=true}
 function drawTex(o,p){const cv=o.cv,c=cv.getContext('2d'),w=cv.width,h=cv.height,pat=state.pattern;
   c.fillStyle='#fff';c.fillRect(0,0,w,h);
   if(pat==='bars'){['#fff','#ff0','#0ff','#0f0','#f0f','#f00','#00f','#111'].forEach((k,i)=>{c.fillStyle=k;c.fillRect(i*w/8,0,w/8+1,h)})}
@@ -336,13 +360,13 @@ function sync3D(res){if(!T3)return;
     const R=res[i],pos=o.mesh.geometry.attributes.position,A=pos.array,P=R.P;
     for(let k=0;k<P.length;k+=3){A[k]=P[k];A[k+1]=P[k+2];A[k+2]=P[k+1]}
     pos.needsUpdate=true;o.mesh.geometry.setIndex(R.idx);
-    o.mesh.material.opacity=Math.max(.1,Math.min(1,R.lux/(R.lux+state.amb*2+25)));
+    {const w=wallLevel(),k=Math.pow((state.amb+R.lux)/state.amb,.4545);o.mesh.material.opacity=Math.max(.02,Math.min(1,w*k)-w)}
     const th=p.yaw*D,ph=p.pitch*D,c=Math.cos(ph);
     o.body.position.set(p.x,p.z,p.y);o.body.lookAt(p.x+c*Math.cos(th),p.z+Math.sin(ph),p.y+c*Math.sin(th));
     const L=o.lines.geometry.attributes.position.array;
     R.corners.forEach((k,q)=>{L.set([p.x,p.z,p.y,P[k*3],P[k*3+2],P[k*3+1]],q*6)});
     L.set([p.x,p.z,p.y,p.x,p.mount==='ceil'?state.H:0,p.y],24);o.lines.geometry.attributes.position.needsUpdate=true});
-  T3.dirty=true}
+  applyLighting()}
 
 /* ---------- panel ---------- */
 const FIELDS=[
@@ -376,7 +400,8 @@ function addProj(base){if(state.ps.length>=MAXP)return;const id=state.next++;
   state.ps.push(p);state.sel=id}
 $('#btn-add').addEventListener('click',()=>{addProj();renderPanel();schedule()});
 $('#btn-reset').addEventListener('click',()=>{state=defaults();syncGlobals();buildRoom();renderPanel();schedule()});
-$('#views').addEventListener('click',e=>{const b=e.target.closest('button');if(b)view(b.dataset.v)});
+$('#views').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.amb){state.amb=+b.dataset.amb;syncGlobals();schedule()}else view(b.dataset.v)});
 function syncGlobals(){$('#g-H').value=state.H;$('#g-amb').value=state.amb;$('#g-pat').value=state.pattern;$('#g-lamp').value=state.lamp}
 $('#g-H').addEventListener('input',e=>{state.H=+e.target.value;state.ps.forEach(p=>{if(p.mount==='ceil')p.z=+(state.H-.4).toFixed(2);p.z=Math.min(p.z,state.H-.1)});buildRoom();renderPanel();schedule()});
 $('#g-amb').addEventListener('input',e=>{state.amb=+e.target.value;schedule()});
